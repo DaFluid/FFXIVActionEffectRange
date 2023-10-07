@@ -18,6 +18,7 @@ using Dalamud.Game.ClientState.Buddy;
 using Dalamud.Game.ClientState.Objects;
 using Dalamud.IoC;
 using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
 
 namespace ActionEffectRange
 {
@@ -28,35 +29,31 @@ namespace ActionEffectRange
         internal static DalamudPluginInterface PluginInterface { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static CommandManager CommandManager { get; private set; } = null!;
+        internal static ICommandManager CommandManager { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static DataManager DataManager { get; private set; } = null!;
+        internal static IDataManager DataManager { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static SigScanner SigScanner { get; private set; } = null!;
+        internal static ISigScanner SigScanner { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static Framework Framework { get; private set; } = null!;
+        internal static IFramework Framework { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static ClientState ClientState { get; private set; } = null!;
+        internal static IClientState ClientState { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static ObjectTable ObejctTable { get; private set; } = null!;
+        internal static IObjectTable ObejctTable { get; private set; } = null!;
         [PluginService]
         //[RequiredVersion("1.0")]
-        internal static BuddyList BuddyList { get; private set; } = null!;
-        
+        internal static IBuddyList BuddyList { get; private set; } = null!;
 
-        public string Name => "ActionEffectRange"
-#if DEBUG
-            + " [DEV]";
-#elif TEST
-            + " [TEST]";
-#else
-            ;
-#endif
+        [PluginService] 
+        //[RequiredVersion("1.0")]
+        internal static IGameInteropProvider GameInteropProvider { get; private set; } = null!;
+        
+        private static ActionWatcher? _actionWatcher;
 
         private const string commandToggleConfig = "/actioneffectrange";
 
@@ -71,12 +68,12 @@ namespace ActionEffectRange
                     if (value) 
                     {
                         EffectRangeDrawing.Reset();
-                        ActionWatcher.Enable();
+                        _actionWatcher?.Enable();
                     }
                     else
                     {
                         EffectRangeDrawing.Reset();
-                        ActionWatcher.Disable();
+                        _actionWatcher?.Disable();
                     }
                     _enabled = value;
                 }
@@ -91,6 +88,8 @@ namespace ActionEffectRange
         {
             Config = PluginInterface.GetPluginConfig() as Configuration 
                 ?? new Configuration();
+
+            _actionWatcher = new ActionWatcher(GameInteropProvider);
 
             InitializeCommands();
 
@@ -120,7 +119,7 @@ namespace ActionEffectRange
             InConfig = true;
         }
 
-        private static void CheckTerritory(object? sender, ushort terr)
+        private static void CheckTerritory(ushort terr)
         {
             if (IsPvPZone)
             {
@@ -134,7 +133,7 @@ namespace ActionEffectRange
             }
         }
 
-        private static void OnLogOut(object? sender, EventArgs e)
+        private static void OnLogOut()
         {
             EffectRangeDrawing.Reset();
         }
@@ -142,7 +141,7 @@ namespace ActionEffectRange
         internal static void RefreshConfig(bool reloadSavedList = false)
         {
             EffectRangeDrawing.RefreshConfig();
-            CheckTerritory(null, ClientState.TerritoryType);
+            CheckTerritory(ClientState.TerritoryType);
             //Enabled = Config.Enabled;
 
             if (reloadSavedList)
@@ -172,7 +171,7 @@ namespace ActionEffectRange
             PluginInterface.UiBuilder.Draw -= ConfigUi.Draw;
             PluginInterface.UiBuilder.OpenConfigUi -= OnOpenConfigUi;
 
-            ActionWatcher.Dispose();
+            _actionWatcher?.Dispose();
             ClassJobWatcher.Dispose();
         }
 

@@ -1,6 +1,7 @@
 ﻿using Dalamud.Interface;
 using FFXIVClientStructs.FFXIV.Client.Graphics.Kernel;
 using System.Runtime.InteropServices;
+using Dalamud.Interface.Utility;
 
 namespace ActionEffectRange.Drawing
 {

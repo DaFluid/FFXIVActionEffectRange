@@ -6,19 +6,40 @@ using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Hooking;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Dalamud.Plugin.Services;
 using Vector3Struct = FFXIVClientStructs.FFXIV.Common.Math.Vector3;
 
 namespace ActionEffectRange.Actions
 {
-    internal static class ActionWatcher
+    internal class ActionWatcher
     {
+        public ActionWatcher(IGameInteropProvider hookProvider)
+        {
+            UseActionHook ??= hookProvider.HookFromAddress<UseActionDelegate>(
+                ActionManagerHelper.FpUseAction, UseActionDetour);
+            UseActionLocationHook ??= hookProvider.HookFromAddress<UseActionLocationDelegate>(
+                ActionManagerHelper.FpUseActionLocation, UseActionLocationDetour);
+            ReceiveActionEffectHook ??= hookProvider.HookFromAddress<ReceiveActionEffectDelegate>(
+                SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 8D F0 03 00 00"), 
+                ReceiveActionEffectDetour);
+            SendActionHook ??= hookProvider.HookFromAddress<SendActionDelegate>(
+                SigScanner.ScanText("E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? F3 0F 10 3D ?? ?? ?? ?? 48 8D 4D BF"), 
+                SendActionDetour);
+
+            LogInformation("ActionWatcher init:\n" +
+                           $"\tUseActionHook @{UseActionHook?.Address ?? IntPtr.Zero:X}\n" +
+                           $"\tUseActionLoactionHook @{UseActionLocationHook?.Address ?? IntPtr.Zero:X}\n" +
+                           $"\tReceiveActionEffectHook @{ReceiveActionEffectHook?.Address ?? IntPtr.Zero:X}\n" +
+                           $"\tSendActionHook @{SendActionHook?.Address ?? IntPtr.Zero:X}");
+        }
+        
         private const float SeqExpiry = 2.5f; // this is arbitrary...
 
-        private static uint lastSendActionSeq = 0;
-        private static uint lastReceivedMainSeq = 0;
+        private  uint lastSendActionSeq = 0;
+        private  uint lastReceivedMainSeq = 0;
 
-        private static readonly ActionSeqRecord playerActionSeqs = new(5);
-        private static readonly HashSet<ushort> skippedSeqs = new();
+        private  readonly ActionSeqRecord playerActionSeqs = new(5);
+        private  readonly HashSet<ushort> skippedSeqs = new();
 
         // Send what is executed; won't be called if queued but not yet executed
         //  or failed to execute (e.g. cast cancelled)
@@ -27,8 +48,8 @@ namespace ActionEffectRange.Actions
         // Not called for GT actions
         private delegate void SendActionDelegate(long targetObjectId, 
             byte actionType, uint actionId, ushort sequence, long a5, long a6, long a7, long a8, long a9);
-        private static readonly Hook<SendActionDelegate>? SendActionHook;
-        private static void SendActionDetour(long targetObjectId, 
+        private  Hook<SendActionDelegate>? SendActionHook;
+        private  void SendActionDetour(long targetObjectId, 
             byte actionType, uint actionId, ushort sequence, long a5, long a6, long a7, long a8, long a9)
         {
             SendActionHook!.Original(targetObjectId, actionType, actionId, sequence, a5, a6, a7, a8, a9);
@@ -95,8 +116,8 @@ namespace ActionEffectRange.Actions
 
         private delegate byte UseActionLocationDelegate(IntPtr actionManager, 
             byte actionType, uint actionId, long targetObjectId, IntPtr location, uint param);
-        private static readonly Hook<UseActionLocationDelegate>? UseActionLocationHook;
-        private static byte UseActionLocationDetour(IntPtr actionManager, 
+        private Hook<UseActionLocationDelegate>? UseActionLocationHook;
+        private byte UseActionLocationDetour(IntPtr actionManager, 
             byte actionType, uint actionId, long targetObjectId, IntPtr location, uint param)
         {
             var ret = UseActionLocationHook!.Original(actionManager, 
@@ -160,10 +181,10 @@ namespace ActionEffectRange.Actions
         //  useType == 1 when this function is called later to actually execute the action
         private delegate byte UseActionDelegate(IntPtr actionManager, 
             byte actionType, uint actionId, long targetObjectId, uint param, uint useType, int pvp, IntPtr a8);
-        private static readonly Hook<UseActionDelegate>? UseActionHook;
+        private Hook<UseActionDelegate>? UseActionHook;
         // Detour used mainly for processing draw-when-casting
         // When applicable, drawing is triggered immediately
-        private static byte UseActionDetour(IntPtr actionManager, 
+        private byte UseActionDetour(IntPtr actionManager, 
             byte actionType, uint actionId, long targetObjectId, uint param, uint useType, int pvp, IntPtr a8)
         {
             var ret = UseActionHook!.Original(actionManager, 
@@ -277,9 +298,9 @@ namespace ActionEffectRange.Actions
         
         private delegate void ReceiveActionEffectDelegate(int sourceObjectId, IntPtr sourceActor, 
             IntPtr position, IntPtr effectHeader, IntPtr effectArray, IntPtr effectTrail);
-        private static readonly Hook<ReceiveActionEffectDelegate>? ReceiveActionEffectHook;
+        private Hook<ReceiveActionEffectDelegate>? ReceiveActionEffectHook;
 
-        private static void ReceiveActionEffectDetour(int sourceObjectId, IntPtr sourceActor, 
+        private void ReceiveActionEffectDetour(int sourceObjectId, IntPtr sourceActor, 
             IntPtr position, IntPtr effectHeader, IntPtr effectArray, IntPtr effectTrail)
         {
             ReceiveActionEffectHook!.Original(sourceObjectId, sourceActor, 
@@ -503,7 +524,7 @@ namespace ActionEffectRange.Actions
 
         #region Checks
 
-        private static bool ShouldProcessAction(byte actionType, uint actionId)
+        private bool ShouldProcessAction(byte actionType, uint actionId)
         {
             if (!IsPlayerLoaded)
             {
@@ -520,33 +541,33 @@ namespace ActionEffectRange.Actions
             return true;
         }
 
-        private static bool ShouldProcessActionType(uint actionType) 
+        private bool ShouldProcessActionType(uint actionType) 
             => actionType == 0x1 || actionType == 0xE; // pve 0x1, pvp 0xE
 
-        private static bool ShouldProcessAction(uint actionId)
+        private bool ShouldProcessAction(uint actionId)
             => !ActionData.IsActionBlacklisted(actionId);
 
 
-        private static bool ShouldDrawForActionCategory(
+        private bool ShouldDrawForActionCategory(
             Enums.ActionCategory actionCategory, bool allowCateogry0 = false)
             => ActionData.IsCombatActionCategory(actionCategory)
             || Config.DrawEx && ActionData.IsSpecialOrArtilleryActionCategory(actionCategory)
             || allowCateogry0 && actionCategory == 0;
 
         // Only check for circle and donut in Large EffectRange check
-        private static bool ShouldDrawForEffectRange(EffectRangeData data)
+        private bool ShouldDrawForEffectRange(EffectRangeData data)
             => data.EffectRange > 0 
             && (!(data is CircleAoEEffectRangeData || data is DonutAoEEffectRangeData) 
                 || Config.LargeDrawOpt != 1 
                 || data.EffectRange < Config.LargeThreshold);
 
         // Note: will not draw for `None` (=0)
-        private static bool ShouldDrawForHarmfulness(EffectRangeData data)
+        private bool ShouldDrawForHarmfulness(EffectRangeData data)
             => EffectRangeDataManager.IsHarmfulAction(data) && Config.DrawHarmful
             || EffectRangeDataManager.IsBeneficialAction(data) && Config.DrawBeneficial;
 
 
-        private static bool CheckShouldDrawPostCustomisation(EffectRangeData data)
+        private bool CheckShouldDrawPostCustomisation(EffectRangeData data)
         {
             if (!ShouldDrawForEffectRange(data))
             {
@@ -568,7 +589,7 @@ namespace ActionEffectRange.Actions
         #endregion
 
 
-        private static ActionSeqInfo? FindRecordedSeqInfo(
+        private ActionSeqInfo? FindRecordedSeqInfo(
             ushort receivedSeq, uint receivedActionId)
         {
             foreach (var seqInfo in playerActionSeqs)
@@ -593,43 +614,25 @@ namespace ActionEffectRange.Actions
             return null;
         }
 
-        private static void ClearSeqRecordCache()
+        private  void ClearSeqRecordCache()
         {
             playerActionSeqs.Clear();
             skippedSeqs.Clear();
         }
 
-        private static bool IsSeqExpired(ActionSeqInfo info)
+        private  bool IsSeqExpired(ActionSeqInfo info)
             => info.ElapsedSeconds > SeqExpiry;
 
-        private static void OnClassJobChangedClearCache(uint classJobId)
+        private  void OnClassJobChangedClearCache(uint classJobId)
             => ClearSeqRecordCache();
 
-        private static void OnTerritoryChangedClearCache(object? sender, ushort terr)
+        private  void OnTerritoryChangedClearCache(ushort terr)
             => ClearSeqRecordCache();
 
 
-        static ActionWatcher()
-        {
-            UseActionHook ??= Hook<UseActionDelegate>.FromAddress(
-                ActionManagerHelper.FpUseAction, UseActionDetour);
-            UseActionLocationHook ??= Hook<UseActionLocationDelegate>.FromAddress(
-                ActionManagerHelper.FpUseActionLocation, UseActionLocationDetour);
-            ReceiveActionEffectHook ??= Hook<ReceiveActionEffectDelegate>.FromAddress(
-                SigScanner.ScanText("E8 ?? ?? ?? ?? 48 8B 8D F0 03 00 00"), 
-                ReceiveActionEffectDetour);
-            SendActionHook ??= Hook<SendActionDelegate>.FromAddress(
-                SigScanner.ScanText("E8 ?? ?? ?? ?? E9 ?? ?? ?? ?? F3 0F 10 3D ?? ?? ?? ?? 48 8D 4D BF"), 
-                SendActionDetour);
+        
 
-            LogInformation("ActionWatcher init:\n" +
-                $"\tUseActionHook @{UseActionHook?.Address ?? IntPtr.Zero:X}\n" +
-                $"\tUseActionLoactionHook @{UseActionLocationHook?.Address ?? IntPtr.Zero:X}\n" +
-                $"\tReceiveActionEffectHook @{ReceiveActionEffectHook?.Address ?? IntPtr.Zero:X}\n" +
-                $"\tSendActionHook @{SendActionHook?.Address ?? IntPtr.Zero:X}");
-        }
-
-        public static void Enable()
+        public void Enable()
         {
             UseActionHook?.Enable();
             UseActionLocationHook?.Enable();
@@ -640,7 +643,7 @@ namespace ActionEffectRange.Actions
             ClassJobWatcher.ClassJobChanged += OnClassJobChangedClearCache;
         }
 
-        public static void Disable()
+        public void Disable()
         {
             UseActionHook?.Disable();
             UseActionLocationHook?.Disable();
@@ -651,7 +654,7 @@ namespace ActionEffectRange.Actions
             ClassJobWatcher.ClassJobChanged -= OnClassJobChangedClearCache;
         }
 
-        public static void Dispose()
+        public void Dispose()
         {
             Disable();
             UseActionHook?.Dispose();
