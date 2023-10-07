@@ -1,5 +1,7 @@
 # DISCLAIMER
-This is my attempt to update this plugin to Dalamud API 9. It is currently in development and not ready for use.
+This is my attempt to update this plugin to Dalamud API 9. It is a direct port, not using any of the new funcionality that may improve performance. It seems to be working, but has not been extensivly tested. This was my first attempt at making any FFXIV plugin, and I only spent a few hours on it.
+
+At the moment I am not providing a build of the plugin. If you want this version, you'll have to find a way to add it yourself. Use at your own risk.
 
 Original readme:
 
