@@ -1,3 +1,8 @@
+# DISCLAIMER
+This is my attempt to update this plugin to Dalamud API 9. It is currently in development and not ready for use.
+
+Original readme:
+
 # ActionEffectRange
 
 A FFXIV Dalamud plugin that provides a visual cue on the effect range of the AoE action the player has just used.
